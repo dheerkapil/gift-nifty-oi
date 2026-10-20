@@ -1,0 +1,5 @@
+# keep the repo tiny - raw NSE IX files are re-downloaded each run,
+# only the derived series (data/oi_master.csv) is committed
+data/raw/
+__pycache__/
+*.pyc
