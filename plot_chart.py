@@ -30,6 +30,8 @@ nif = nif[~nif.index.duplicated(keep="last")]
 df = oi.merge(nif.reset_index().rename(columns={"index": "d"}), on="d", how="inner").reset_index(drop=True)
 df["ma5"] = df["oi"].rolling(5).mean()
 
+print(f"DIAG oi={len(oi)} nif={len(nif)} merged={len(df)}")
+print(f"DIAG oi range {oi['d'].min()}..{oi['d'].max()} | nif range {nif.index.min()}..{nif.index.max()}")
 n = len(df)
 if n < 30:
     raise SystemExit(f"too few points ({n}) - not sending a chart")
