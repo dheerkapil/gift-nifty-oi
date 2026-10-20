@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-GIFT Nifty OI - daily fetcher (scheduled hourly 17:00-23:00 IST).
-Logic:
-  * weekends and coded holidays -> do nothing
-  * if today's row already in the master -> do nothing  (so once we have the
-    day's file, later runs that day fetch nothing)
-  * otherwise try today's file; if it isn't published yet, exit quietly and
-    let the next hourly run try again
-  * on success, also backfill any older missing weekdays
-Standard library only.
+GIFT Nifty OI fetcher + Nifty underlying, for the automated repo.
+
+Hourly 17:00-23:00 IST (Mon-Fri):
+  * weekends / coded holidays -> do nothing
+  * if today's OI row is already in the master -> do nothing
+  * otherwise fetch today's 'Index Combined OI' AND the 'Underlying Price'
+    file (NIFTY), append both, then backfill older gaps
+Both files come from nseix.com, so there is no external price dependency.
 """
 import os, csv, sys, time, datetime as dt
 import urllib.request, http.cookiejar
@@ -17,6 +16,7 @@ ROOT   = os.path.dirname(os.path.abspath(__file__))
 DATA   = os.path.join(ROOT, "data")
 RAW    = os.path.join(DATA, "raw")
 MASTER = os.path.join(DATA, "oi_master.csv")
+NIFTY  = os.path.join(DATA, "nifty_daily.csv")
 HOLID  = os.path.join(DATA, "holidays.txt")
 BASE   = "https://www.nseix.com/api/content/daily_report"
 PAGE   = "https://www.nseix.com/markets/reports"
@@ -42,9 +42,9 @@ def load_holidays():
     if os.path.exists(HOLID):
         for line in open(HOLID):
             line = line.split("#")[0].strip()
-            if not line: continue
-            try: hol.add(dt.datetime.strptime(line, "%d-%b-%Y").date())
-            except Exception: pass
+            if line:
+                try: hol.add(dt.datetime.strptime(line, "%d-%b-%Y").date())
+                except Exception: pass
     return hol
 
 def warm():
@@ -58,22 +58,29 @@ def recent_weekdays(n):
         d -= dt.timedelta(days=1)
     return out
 
-def download(day):
-    ds = day.strftime("%d%m%Y")
-    url = f"{BASE}/G_COMBINED_OI_{ds}.csv"
-    path = os.path.join(RAW, f"G_COMBINED_OI_{ds}.csv")
-    if os.path.exists(path) and os.path.getsize(path) > MINSIZE:
+def _get(url, path, minsize):
+    if os.path.exists(path) and os.path.getsize(path) > minsize:
         return path
     for a in range(3):
         try:
             data = _op.open(url, timeout=40).read()
-            if len(data) > MINSIZE:
+            if len(data) > minsize:
                 open(path, "wb").write(data); return path
         except Exception:
             time.sleep(5 * (a + 1))
     return None
 
-def parse(path):
+def get_oi(day):
+    ds = day.strftime("%d%m%Y")
+    return _get(f"{BASE}/G_COMBINED_OI_{ds}.csv",
+                os.path.join(RAW, f"G_COMBINED_OI_{ds}.csv"), MINSIZE)
+
+def get_ul(day):
+    ds = day.strftime("%d%m%Y")
+    return _get(f"{BASE}/G_T1_UL_PRICE_{ds}.csv",
+                os.path.join(RAW, f"G_T1_UL_PRICE_{ds}.csv"), 100)
+
+def parse_oi(path):
     rows = list(csv.reader(open(path, encoding="utf-8", errors="ignore")))
     date = canon(rows[0][0]); fut = {}
     for r in rows[1:]:
@@ -81,16 +88,42 @@ def parse(path):
             v = r[6].strip().lstrip("-"); fut[r[2]] = int(v) if v.isdigit() else 0
     return (date, fut) if fut else (None, None)
 
-def seen():
-    if not os.path.exists(MASTER): return set()
-    return {canon(r["date"]) for r in csv.DictReader(open(MASTER))}
+def parse_ul(path):
+    for r in csv.reader(open(path, encoding="utf-8", errors="ignore")):
+        if len(r) >= 3 and r[1].strip().upper() == "NIFTY":
+            try: return canon(r[0]), float(r[2])
+            except Exception: return None, None
+    return None, None
 
-def append(date, total):
-    new = not os.path.exists(MASTER)
-    with open(MASTER, "a", newline="") as f:
+def seen(path, col):
+    if not os.path.exists(path): return set()
+    return {canon(r["date"]) for r in csv.DictReader(open(path))}
+
+def append(path, header, row):
+    new = not os.path.exists(path)
+    with open(path, "a", newline="") as f:
         w = csv.writer(f)
-        if new: w.writerow(["date", "nifty_fut_total_oi"])
-        w.writerow([date, total])
+        if new: w.writerow(header)
+        w.writerow(row)
+
+def do_day(day, have_oi, have_nx):
+    """fetch + append one day's OI and Nifty; return (oi_added, nifty_added)."""
+    added = [0, 0]
+    p = get_oi(day)
+    if p:
+        date, fut = parse_oi(p)
+        if date and date not in have_oi:
+            append(MASTER, ["date", "nifty_fut_total_oi"], [date, sum(fut.values())])
+            have_oi.add(date); added[0] = 1
+            print(f"{date}: OI {sum(fut.values()):,}")
+    q = get_ul(day)
+    if q:
+        date, val = parse_ul(q)
+        if date and date not in have_nx:
+            append(NIFTY, ["date", "nifty"], [date, val])
+            have_nx.add(date); added[1] = 1
+            print(f"{date}: nifty {val}")
+    return added
 
 def main():
     today = ist_today()
@@ -98,31 +131,20 @@ def main():
         print(f"{today} is a weekend - nothing to do"); return
     if today in load_holidays():
         print(f"{today} is a coded holiday - no run"); return
-    have = seen()
-    if canon(today.strftime("%d-%b-%Y")) in have:
+    have_oi = seen(MASTER, "date")
+    have_nx = seen(NIFTY, "date")
+    if canon(today.strftime("%d-%b-%Y")) in have_oi and canon(today.strftime("%d-%b-%Y")) in have_nx:
         print(f"already have {today} - no further fetches today"); return
 
     warm()
-    p = download(today)
-    if not p:
+    a = do_day(today, have_oi, have_nx)
+    if a == [0, 0]:
         print(f"{today}: not published yet - the next hourly run will retry"); return
-    date, fut = parse(p)
-    if not date:
-        print(f"{today}: file present but unparseable"); return
-    append(date, sum(fut.values())); have.add(date)
-    print(f"{date}: appended OI {sum(fut.values()):,}")
-
-    # backfill older gaps (bounded, only runs on the day's first success)
     hol = load_holidays()
     for day in recent_weekdays(LOOKBACK):
         if day == today or day.weekday() >= 5 or day in hol: continue
-        pp = download(day)
-        if not pp: continue
-        d2, f2 = parse(pp)
-        if d2 and d2 not in have:
-            append(d2, sum(f2.values())); have.add(d2)
-            print(f"{d2}: backfilled OI {sum(f2.values()):,}")
-    print(f"done - master has {len(have)} dates")
+        do_day(day, have_oi, have_nx)
+    print(f"done - master {len(have_oi)} dates, nifty {len(have_nx)} dates")
 
 if __name__ == "__main__":
     main()

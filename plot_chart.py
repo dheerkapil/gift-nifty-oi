@@ -1,41 +1,32 @@
 #!/usr/bin/env python3
-"""
-Build the GIFT OI vs Nifty chart from data/oi_master.csv  ->  chart.png
-Width scales with the number of days so it never gets cramped.
-"""
-import os, json, datetime as dt, urllib.request
+"""Build chart.png (GIFT futures OI vs Nifty 50) from the repo's own data files."""
+import os
 import pandas as pd, numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt, matplotlib.dates as mdates
 
 ROOT   = os.path.dirname(os.path.abspath(__file__))
-MASTER = os.path.join(ROOT, "data", "oi_master.csv")
+DATA   = os.path.join(ROOT, "data")
 OUT    = os.path.join(ROOT, "chart.png")
-IN_PER_DAY = 0.052          # 250 days -> 13in ; 500 days -> 26in
+IN_PER_DAY = 0.052
 HEIGHT     = 10
 
-oi = pd.read_csv(MASTER).rename(columns={"nifty_fut_total_oi": "oi"})
+oi = pd.read_csv(os.path.join(DATA, "oi_master.csv")).rename(columns={"nifty_fut_total_oi": "oi"})
 oi["d"] = pd.to_datetime(oi["date"], format="%d-%b-%Y")
 oi = oi.drop_duplicates("d").sort_values("d").reset_index(drop=True)
 
-p1 = int((oi["d"].min() - dt.timedelta(days=5)).timestamp())
-p2 = int((oi["d"].max() + dt.timedelta(days=2)).timestamp())
-url = f"https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI"
-j = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30))
-res = j["chart"]["result"][0]
-nif = pd.DataFrame({"nifty": res["indicators"]["quote"][0]["close"]},
-                   index=pd.to_datetime(res["timestamp"], unit="s", utc=True)).dropna()
-nif.index = nif.index.tz_convert("Asia/Kolkata").tz_localize(None).normalize()
-nif = nif[~nif.index.duplicated(keep="last")]
-df = oi.merge(nif.reset_index().rename(columns={"index": "d"}), on="d", how="inner").reset_index(drop=True)
-df["ma5"] = df["oi"].rolling(5).mean()
+nx = pd.read_csv(os.path.join(DATA, "nifty_daily.csv"))
+nx["d"] = pd.to_datetime(nx["date"], format="%d-%b-%Y")
+nx = nx.drop_duplicates("d").sort_values("d").reset_index(drop=True)
 
-print(f"DIAG oi={len(oi)} nif={len(nif)} merged={len(df)}")
-print(f"DIAG oi range {oi['d'].min()}..{oi['d'].max()} | nif range {nif.index.min()}..{nif.index.max()}")
+df = oi.merge(nx[["d", "nifty"]], on="d", how="inner").reset_index(drop=True)
+df["ma5"] = df["oi"].rolling(5).mean()
+print(f"DIAG oi={len(oi)} nifty={len(nx)} merged={len(df)}")
 n = len(df)
 if n < 30:
     raise SystemExit(f"too few points ({n}) - not sending a chart")
 width = max(12.0, round(IN_PER_DAY * n, 1))
+
 fig, (a, b) = plt.subplots(2, 1, figsize=(width, HEIGHT), gridspec_kw={"height_ratios": [2, 1.2]})
 ab = a.twinx()
 a.plot(df["d"], df["nifty"], color="#1f4e9c", lw=2, label="Nifty 50 spot (L)")
