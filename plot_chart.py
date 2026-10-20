@@ -30,7 +30,10 @@ nif = nif[~nif.index.duplicated(keep="last")]
 df = oi.merge(nif.reset_index().rename(columns={"index": "d"}), on="d", how="inner").reset_index(drop=True)
 df["ma5"] = df["oi"].rolling(5).mean()
 
-n = len(df); width = max(12.0, round(IN_PER_DAY * n, 1))
+n = len(df)
+if n < 30:
+    raise SystemExit(f"too few points ({n}) - not sending a chart")
+width = max(12.0, round(IN_PER_DAY * n, 1))
 fig, (a, b) = plt.subplots(2, 1, figsize=(width, HEIGHT), gridspec_kw={"height_ratios": [2, 1.2]})
 ab = a.twinx()
 a.plot(df["d"], df["nifty"], color="#1f4e9c", lw=2, label="Nifty 50 spot (L)")
