@@ -1,0 +1,12 @@
+# NSE IX (GIFT Nifty) trading closures - one date per line (DD-MMM-YYYY)
+# weekends are skipped automatically.  These are verified closures (from the
+# two-year data pull + the published NSE IX calendar).  Auto-refreshed weekly
+# by .github/workflows/refresh-holidays.yml - do not hand-edit unless needed.
+01-Nov-2024
+01-Jan-2025
+15-Aug-2025
+02-Oct-2025
+21-Oct-2025
+01-Jan-2026
+26-Jan-2026
+02-Oct-2026

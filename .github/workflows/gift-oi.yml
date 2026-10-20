@@ -1,8 +1,8 @@
 name: gift-oi-daily
 on:
   schedule:
-    - cron: "30 14 * * 1-5"     # 20:00 IST, Mon-Fri (14:30 UTC)
-  workflow_dispatch:            # lets you run it by hand any time
+    - cron: "30 11-17 * * 1-5"     # 17:00-23:00 IST, hourly, Mon-Fri
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
