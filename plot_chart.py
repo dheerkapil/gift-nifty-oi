@@ -16,7 +16,7 @@ HEIGHT     = 10
 
 oi = pd.read_csv(MASTER).rename(columns={"nifty_fut_total_oi": "oi"})
 oi["d"] = pd.to_datetime(oi["date"], format="%d-%b-%Y")
-oi = oi.sort_values("d").reset_index(drop=True)
+oi = oi.drop_duplicates("d").sort_values("d").reset_index(drop=True)
 
 p1 = int((oi["d"].min() - dt.timedelta(days=5)).timestamp())
 p2 = int((oi["d"].max() + dt.timedelta(days=2)).timestamp())
@@ -26,6 +26,7 @@ res = j["chart"]["result"][0]
 nif = pd.DataFrame({"nifty": res["indicators"]["quote"][0]["close"]},
                    index=pd.to_datetime(res["timestamp"], unit="s", utc=True)).dropna()
 nif.index = nif.index.tz_convert("Asia/Kolkata").tz_localize(None).normalize()
+nif = nif[~nif.index.duplicated(keep="last")]
 df = oi.merge(nif.reset_index().rename(columns={"index": "d"}), on="d", how="inner").reset_index(drop=True)
 df["ma5"] = df["oi"].rolling(5).mean()
 
