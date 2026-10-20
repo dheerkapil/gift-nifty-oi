@@ -24,6 +24,12 @@ _cj = http.cookiejar.CookieJar()
 _op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj))
 _op.addheaders = [("User-Agent", UA), ("Referer", PAGE)]
 
+def canon(s):
+    try:
+        return dt.datetime.strptime(s.strip(), "%d-%b-%Y").strftime("%d-%b-%Y")
+    except Exception:
+        return s.strip()
+
 def warm():
     try: _op.open(PAGE, timeout=30).read()
     except Exception: pass
@@ -53,7 +59,7 @@ def download(day):
 
 def parse(path):
     rows = list(csv.reader(open(path, encoding="utf-8", errors="ignore")))
-    date = rows[0][0]; fut = {}
+    date = canon(rows[0][0]); fut = {}
     for r in rows[1:]:
         if len(r) >= 7 and r[0] == "FUTIDX" and r[1] == "NIFTY":
             v = r[6].strip().lstrip("-"); fut[r[2]] = int(v) if v.isdigit() else 0
@@ -61,7 +67,7 @@ def parse(path):
 
 def seen():
     if not os.path.exists(MASTER): return set()
-    return {r["date"] for r in csv.DictReader(open(MASTER))}
+    return {canon(r["date"]) for r in csv.DictReader(open(MASTER))}
 
 def append(date, total):
     new = not os.path.exists(MASTER)
