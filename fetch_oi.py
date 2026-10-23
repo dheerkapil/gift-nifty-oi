@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-GIFT Nifty OI fetcher + Nifty underlying, for the automated repo.
+GIFT Nifty OI + Nifty underlying fetcher (scheduled hourly 17:00-23:00 IST).
 
-Hourly 17:00-23:00 IST (Mon-Fri):
-  * weekends / coded holidays -> do nothing
-  * if today's OI row is already in the master -> do nothing
-  * otherwise fetch today's 'Index Combined OI' AND the 'Underlying Price'
-    file (NIFTY), append both, then backfill older gaps
+Each run:
+  * weekends / coded holidays -> nothing
+  * if today's OI AND Nifty rows are already in -> nothing (no further fetches)
+  * otherwise walk the last LOOKBACK weekdays (newest first) and fill EVERY
+    missing day -- today's file may not be published yet, but older gaps still
+    get filled.  (Earlier versions returned early on that, which is why gaps
+    could persist.)
 Both files come from nseix.com, so there is no external price dependency.
 """
 import os, csv, sys, time, datetime as dt
@@ -23,7 +25,7 @@ PAGE   = "https://www.nseix.com/markets/reports"
 UA     = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/124 Safari/537.36")
 MINSIZE = 5000
-LOOKBACK = 12
+LOOKBACK = 15
 
 os.makedirs(RAW, exist_ok=True)
 _cj = http.cookiejar.CookieJar()
@@ -31,7 +33,7 @@ _op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj))
 _op.addheaders = [("User-Agent", UA), ("Referer", PAGE)]
 
 def ist_today():
-    return (dt.datetime.utcnow() + dt.timedelta(hours=5, minutes=30)).date()
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=5, minutes=30)).date()
 
 def canon(s):
     try: return dt.datetime.strptime(s.strip(), "%d-%b-%Y").strftime("%d-%b-%Y")
@@ -52,7 +54,7 @@ def warm():
     except Exception: pass
 
 def recent_weekdays(n):
-    d, out = dt.date.today(), []
+    d, out = ist_today(), []
     while len(out) < n:
         if d.weekday() < 5: out.append(d)
         d -= dt.timedelta(days=1)
@@ -72,13 +74,11 @@ def _get(url, path, minsize):
 
 def get_oi(day):
     ds = day.strftime("%d%m%Y")
-    return _get(f"{BASE}/G_COMBINED_OI_{ds}.csv",
-                os.path.join(RAW, f"G_COMBINED_OI_{ds}.csv"), MINSIZE)
+    return _get(f"{BASE}/G_COMBINED_OI_{ds}.csv", os.path.join(RAW, f"G_COMBINED_OI_{ds}.csv"), MINSIZE)
 
 def get_ul(day):
     ds = day.strftime("%d%m%Y")
-    return _get(f"{BASE}/G_T1_UL_PRICE_{ds}.csv",
-                os.path.join(RAW, f"G_T1_UL_PRICE_{ds}.csv"), 100)
+    return _get(f"{BASE}/G_T1_UL_PRICE_{ds}.csv", os.path.join(RAW, f"G_T1_UL_PRICE_{ds}.csv"), 100)
 
 def parse_oi(path):
     rows = list(csv.reader(open(path, encoding="utf-8", errors="ignore")))
@@ -95,7 +95,7 @@ def parse_ul(path):
             except Exception: return None, None
     return None, None
 
-def seen(path, col):
+def seen(path):
     if not os.path.exists(path): return set()
     return {canon(r["date"]) for r in csv.DictReader(open(path))}
 
@@ -107,44 +107,49 @@ def append(path, header, row):
         w.writerow(row)
 
 def do_day(day, have_oi, have_nx):
-    """fetch + append one day's OI and Nifty; return (oi_added, nifty_added)."""
-    added = [0, 0]
-    p = get_oi(day)
-    if p:
-        date, fut = parse_oi(p)
-        if date and date not in have_oi:
-            append(MASTER, ["date", "nifty_fut_total_oi"], [date, sum(fut.values())])
-            have_oi.add(date); added[0] = 1
-            print(f"{date}: OI {sum(fut.values()):,}")
-    q = get_ul(day)
-    if q:
-        date, val = parse_ul(q)
-        if date and date not in have_nx:
-            append(NIFTY, ["date", "nifty"], [date, val])
-            have_nx.add(date); added[1] = 1
-            print(f"{date}: nifty {val}")
+    ds = canon(day.strftime("%d-%b-%Y"))
+    need_oi, need_nx = ds not in have_oi, ds not in have_nx
+    if not need_oi and not need_nx:
+        return 0                                   # already have it - no download
+    added = 0
+    if need_oi:
+        p = get_oi(day)
+        if p:
+            date, fut = parse_oi(p)
+            if date and date not in have_oi:
+                append(MASTER, ["date", "nifty_fut_total_oi"], [date, sum(fut.values())])
+                have_oi.add(date); added += 1
+                print(f"{date}: OI {sum(fut.values()):,}")
+    if need_nx:
+        q = get_ul(day)
+        if q:
+            date, val = parse_ul(q)
+            if date and date not in have_nx:
+                append(NIFTY, ["date", "nifty"], [date, val])
+                have_nx.add(date); added += 1
+                print(f"{date}: nifty {val}")
     return added
 
 def main():
     today = ist_today()
     if today.weekday() >= 5:
         print(f"{today} is a weekend - nothing to do"); return
-    if today in load_holidays():
+    hol = load_holidays()
+    if today in hol:
         print(f"{today} is a coded holiday - no run"); return
-    have_oi = seen(MASTER, "date")
-    have_nx = seen(NIFTY, "date")
-    if canon(today.strftime("%d-%b-%Y")) in have_oi and canon(today.strftime("%d-%b-%Y")) in have_nx:
+    have_oi, have_nx = seen(MASTER), seen(NIFTY)
+    tds = canon(today.strftime("%d-%b-%Y"))
+    if tds in have_oi and tds in have_nx:
         print(f"already have {today} - no further fetches today"); return
 
     warm()
-    a = do_day(today, have_oi, have_nx)
-    if a == [0, 0]:
-        print(f"{today}: not published yet - the next hourly run will retry"); return
-    hol = load_holidays()
-    for day in recent_weekdays(LOOKBACK):
-        if day == today or day.weekday() >= 5 or day in hol: continue
-        do_day(day, have_oi, have_nx)
-    print(f"done - master {len(have_oi)} dates, nifty {len(have_nx)} dates")
+    added = 0
+    for day in recent_weekdays(LOOKBACK):          # newest first; fills ALL gaps
+        if day.weekday() >= 5 or day in hol: continue
+        added += do_day(day, have_oi, have_nx)
+    if added == 0:
+        print("nothing new yet - the next hourly run will retry")
+    print(f"done - added {added}; master {len(have_oi)} dates, nifty {len(have_nx)} dates")
 
 if __name__ == "__main__":
     main()
