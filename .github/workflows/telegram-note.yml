@@ -1,0 +1,29 @@
+name: telegram-note
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "text to send to the configured Telegram chat"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Send to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MSG: ${{ inputs.message }}
+        run: |
+          CID="${TELEGRAM_CHAT_ID:-}"
+          if [ -z "$CID" ]; then CID=$(python3 resolve_chat.py); fi
+          if [ -z "$CID" ]; then echo "no chat id"; exit 1; fi
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+               --data-urlencode chat_id="$CID" --data-urlencode text="$MSG" | head -c 400
+          echo
