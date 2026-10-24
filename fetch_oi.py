@@ -132,23 +132,23 @@ def do_day(day, have_oi, have_nx):
 
 def main():
     today = ist_today()
-    if today.weekday() >= 5:
-        print(f"{today} is a weekend - nothing to do"); return
     hol = load_holidays()
-    if today in hol:
-        print(f"{today} is a coded holiday - no run"); return
     have_oi, have_nx = seen(MASTER), seen(NIFTY)
     tds = canon(today.strftime("%d-%b-%Y"))
-    if tds in have_oi and tds in have_nx:
+    skip_today = today.weekday() >= 5 or today in hol
+    if not skip_today and tds in have_oi and tds in have_nx:
         print(f"already have {today} - no further fetches today"); return
+    if skip_today:
+        print(f"{today} is a weekend/holiday - backfilling gaps only")
 
     warm()
     added = 0
     for day in recent_weekdays(LOOKBACK):          # newest first; fills ALL gaps
         if day.weekday() >= 5 or day in hol: continue
+        if skip_today and day == today: continue
         added += do_day(day, have_oi, have_nx)
     if added == 0:
-        print("nothing new yet - the next hourly run will retry")
+        print("nothing new yet - the next run will retry")
     print(f"done - added {added}; master {len(have_oi)} dates, nifty {len(have_nx)} dates")
 
 if __name__ == "__main__":
