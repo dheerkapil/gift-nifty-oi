@@ -1,5 +1,7 @@
 name: gift-oi-daily
 on:
+  schedule:
+    - cron: "30 11-17 * * 1-5"     # hourly retry, 17:00-23:30 IST Mon-Fri
   workflow_dispatch:
 permissions:
   contents: write
