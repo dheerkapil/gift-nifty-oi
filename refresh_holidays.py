@@ -35,7 +35,11 @@ def fetch_dates():
             d, mo, y = m.groups()
             mi = MON.get(mo[:3].lower())
             if mi:
-                try: out.add(dt.date(int(y), mi, int(d)))
+                try:
+                    d0 = dt.date(int(y), mi, int(d))
+                    # only plausible trading-day closures: weekdays, within +/-2 years
+                    if d0.weekday() < 5 and (dt.date.today() - dt.timedelta(days=730)) <= d0 <= (dt.date.today() + dt.timedelta(days=730)):
+                        out.add(d0)
                 except Exception: pass
     except Exception as e:
         print("fetch failed:", e)
