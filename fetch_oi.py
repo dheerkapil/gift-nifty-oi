@@ -102,9 +102,42 @@ def seen(path):
 def append(path, header, row):
     new = not os.path.exists(path)
     with open(path, "a", newline="") as f:
-        w = csv.writer(f)
+        # lineterminator="\n": the excel dialect default is \r\n, which left the
+        # appended tail with CRLF endings while the seeded body used LF.
+        w = csv.writer(f, lineterminator="\n")
         if new: w.writerow(header)
         w.writerow(row)
+
+def _date_key(s):
+    try: return (0, dt.datetime.strptime(s, "%d-%b-%Y"))
+    except Exception: return (1, s)
+
+def normalise(path, header):
+    """Rewrite a date-keyed CSV in chronological order with LF endings.
+
+    main() backfills the last LOOKBACK weekdays newest-first, so a run that
+    fills several gaps appends them in descending date order. Sorting on write
+    keeps "last row == newest" true and makes the file self-healing. Idempotent:
+    an already-sorted file is rewritten byte-identically, so git sees no diff.
+    """
+    if not os.path.exists(path):
+        return 0
+    try:
+        rows = list(csv.DictReader(open(path, newline="")))
+        seen_d = {}
+        for r in rows:
+            d = canon(r.get("date", ""))
+            if d: seen_d[d] = r
+        ordered = [seen_d[k] for k in sorted(seen_d, key=_date_key)]
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header, lineterminator="\n")
+            w.writeheader()
+            for r in ordered:
+                w.writerow({k: r.get(k, "") for k in header})
+        return len(ordered)
+    except Exception as e:
+        print(f"normalise({os.path.basename(path)}) skipped: {e}")
+        return 0
 
 def do_day(day, have_oi, have_nx):
     ds = canon(day.strftime("%d-%b-%Y"))
@@ -149,6 +182,8 @@ def main():
         added += do_day(day, have_oi, have_nx)
     if added == 0:
         print("nothing new yet - the next run will retry")
+    normalise(MASTER, ["date", "nifty_fut_total_oi"])
+    normalise(NIFTY, ["date", "nifty"])
     print(f"done - added {added}; master {len(have_oi)} dates, nifty {len(have_nx)} dates")
 
 if __name__ == "__main__":
