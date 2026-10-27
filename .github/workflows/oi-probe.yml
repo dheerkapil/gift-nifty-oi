@@ -1,12 +1,23 @@
 name: oi-probe
-# Temporary diagnostic: hourly check of whether the day's NSE IX GIFT Nifty
-# report files exist yet, recording the first time each one is seen in
-# data/probe_log.csv.  Header-only requests; the reports are never downloaded.
-# Self-expiring - probe_oi.py no-ops after 2026-11-03 IST.  Safe to delete.
+# Diagnostic only - NOT scheduled. Checks whether the day's NSE IX GIFT Nifty
+# report files exist and reads the server's Last-Modified (publication) time.
+# Header-only requests: the reports are never downloaded.
+#
+# Manual use:
+#   lookback=16, backfill=true   -> rewrite data/upload_times.csv for the last
+#                                   16 weekdays with publication times
+#   backfill=false               -> append newly seen files to data/probe_log.csv
 on:
-  schedule:
-    - cron: "7 * * * *"
   workflow_dispatch:
+    inputs:
+      lookback:
+        description: "How many weekdays to inspect (1-30)"
+        required: false
+        default: "16"
+      backfill:
+        description: "true = write data/upload_times.csv for all days"
+        required: false
+        default: "true"
 permissions:
   contents: write
 concurrency:
@@ -22,20 +33,21 @@ jobs:
         with:
           python-version: "3.12"
       - name: Probe report availability (headers only)
+        env:
+          LOOKBACK: ${{ inputs.lookback }}
+          BACKFILL: ${{ inputs.backfill }}
         run: python probe_oi.py
-      - name: Commit first-seen log
+      - name: Commit results
         run: |
           set -euo pipefail
           git config user.name  gift-oi-bot
           git config user.email gift-oi-bot@users.noreply.github.com
-          if [ -f data/probe_log.csv ]; then
-            git add data/probe_log.csv
-            if git diff --staged --quiet; then
-              echo "no new first-seen rows"
-            else
-              git commit -m "probe: first-seen report times"
-              git push
-            fi
+          for f in data/upload_times.csv data/probe_log.csv; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
+          if git diff --staged --quiet; then
+            echo "nothing to commit"
           else
-            echo "no probe log yet"
+            git commit -m "probe: publication times for last $(echo "${LOOKBACK:-16}") weekdays"
+            git push
           fi
