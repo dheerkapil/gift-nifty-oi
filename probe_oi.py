@@ -33,7 +33,7 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 # (file prefix, minimum plausible size in bytes)
 FILES = [("G_COMBINED_OI", 5000), ("G_T1_UL_PRICE", 100)]
 LOOKBACK = int(os.environ.get("LOOKBACK", "6"))       # weekdays to inspect
-BACKFILL = os.environ.get("BACKFILL", "") == "1"
+BACKFILL = os.environ.get("BACKFILL", "").strip().lower() in ("1", "true", "yes")
 PROBE_UNTIL = dt.date(2026, 11, 3)                    # first-seen mode only
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
