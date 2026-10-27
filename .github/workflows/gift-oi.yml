@@ -1,7 +1,13 @@
 name: gift-oi-daily
 on:
   schedule:
-    - cron: "30 11-17 * * 1-5"     # hourly retry, 17:00-23:00 IST Mon-Fri
+    # The OI file lands ~21:30-22:05 IST and the Nifty price file ~02:55 IST the
+    # next morning, so a day can only be charted after ~03:00 IST. One run at
+    # 05:00 IST, then four half-hourly retries in case the files are late.
+    # Every run only sends when data changed, so retries cannot duplicate.
+    # IST = UTC+5:30, so these fall on the previous UTC day.
+    - cron: "30 23 * * 0-4"        # 05:00 IST, Mon-Fri
+    - cron: "0,30 0-1 * * 1-5"     # 05:30, 06:00, 06:30, 07:00 IST, Tue-Sat
   workflow_dispatch:
 permissions:
   contents: write
