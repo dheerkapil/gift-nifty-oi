@@ -6,8 +6,10 @@ on:
     # 05:00 IST, then four half-hourly retries in case the files are late.
     # Every run only sends when data changed, so retries cannot duplicate.
     # IST = UTC+5:30, so these fall on the previous UTC day.
-    - cron: "30 23 * * 0-4"        # 05:00 IST, Mon-Fri
-    - cron: "0,30 0-1 * * 1-5"     # 05:30, 06:00, 06:30, 07:00 IST, Tue-Sat
+    # Tue-Sat IST, because a trading day's data is only complete the next
+    # morning (Friday's price file lands ~02:55 Saturday).
+    - cron: "30 23 * * 1-5"        # 05:00 IST, Tue-Sat
+    - cron: "0,30 0-1 * * 2-6"     # 05:30, 06:00, 06:30, 07:00 IST, Tue-Sat
   workflow_dispatch:
 permissions:
   contents: write
